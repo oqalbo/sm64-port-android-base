@@ -1,4 +1,4 @@
-name: SM64 Android Build (Stable Fix)
+name: SM64 Android Build (FINAL FIX)
 
 on:
   workflow_dispatch:
@@ -24,8 +24,26 @@ jobs:
       GRADLE_OPTS: -Dorg.gradle.daemon=false
 
     steps:
-      - name: Checkout
+      # ---------------- CHECKOUT ----------------
+      - name: Checkout repo (with submodules)
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Init submodules (force fix for SDL)
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      # ---------------- VERIFY SDL ----------------
+      - name: Verify SDL exists
+        run: |
+          if [ ! -f app/jni/SDL/src/atomic/SDL_atomic.c ]; then
+            echo "❌ SDL missing - submodules not loaded"
+            find app/jni -maxdepth 4 | head -n 200
+            exit 1
+          fi
 
       # ---------------- JAVA ----------------
       - name: Set up JDK 17
@@ -38,31 +56,25 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install NDK
+      - name: Install NDK + platform tools
         run: |
+          yes | sdkmanager --licenses
           sdkmanager "platform-tools" "platforms;android-34" "ndk;25.2.9519653"
 
-      - name: Accept licenses
-        run: yes | sdkmanager --licenses
-
-      # ---------------- CACHE (SAFE ONLY) ----------------
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-
-      # ---------------- BUILD ----------------
+      # ---------------- BUILD PERMISSIONS ----------------
       - name: Make gradlew executable
         run: chmod +x gradlew
 
+      # ---------------- BUILD ----------------
       - name: Build APK
         run: |
-          ./gradlew --no-daemon assemble${{ github.event.inputs.build_type == 'debug' && 'Debug' || 'Release' }} --stacktrace
+          if [ "${{ github.event.inputs.build_type }}" = "debug" ]; then
+            ./gradlew --no-daemon assembleDebug --stacktrace
+          else
+            ./gradlew --no-daemon assembleRelease --stacktrace
+          fi
 
-      # ---------------- OUTPUT ----------------
+      # ---------------- ARTIFACT ----------------
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -70,7 +82,7 @@ jobs:
           path: app/build/outputs/apk/**/*.apk
 
       # ---------------- RELEASE ----------------
-      - name: Create Release
+      - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
