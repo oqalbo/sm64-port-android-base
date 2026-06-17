@@ -1,10 +1,10 @@
-name: SM64 Android Build (FINAL FIX)
+name: SM64 Android Build
 
 on:
   workflow_dispatch:
     inputs:
       build_type:
-        description: "Build type"
+        description: Build type
         required: true
         default: release
         type: choice
@@ -24,48 +24,34 @@ jobs:
       GRADLE_OPTS: -Dorg.gradle.daemon=false
 
     steps:
-      # ---------------- CHECKOUT ----------------
-      - name: Checkout repo (with submodules)
+      - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          submodules: recursive
           fetch-depth: 0
 
-      - name: Init submodules (force fix for SDL)
+      - name: Sanity check repo layout
         run: |
-          git submodule sync --recursive
-          git submodule update --init --recursive
+          test -f app/jni/Android.mk
+          test -f app/jni/src/Android.mk
+          test -f app/jni/src/Makefile
 
-      # ---------------- VERIFY SDL ----------------
-      - name: Verify SDL exists
-        run: |
-          if [ ! -f app/jni/SDL/src/atomic/SDL_atomic.c ]; then
-            echo "❌ SDL missing - submodules not loaded"
-            find app/jni -maxdepth 4 | head -n 200
-            exit 1
-          fi
-
-      # ---------------- JAVA ----------------
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
-      # ---------------- ANDROID SDK ----------------
-      - name: Setup Android SDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install NDK + platform tools
+      - name: Install NDK and platform tools
         run: |
           yes | sdkmanager --licenses
           sdkmanager "platform-tools" "platforms;android-34" "ndk;25.2.9519653"
 
-      # ---------------- BUILD PERMISSIONS ----------------
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      # ---------------- BUILD ----------------
       - name: Build APK
         run: |
           if [ "${{ github.event.inputs.build_type }}" = "debug" ]; then
@@ -74,14 +60,12 @@ jobs:
             ./gradlew --no-daemon assembleRelease --stacktrace
           fi
 
-      # ---------------- ARTIFACT ----------------
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: sm64-apk
           path: app/build/outputs/apk/**/*.apk
 
-      # ---------------- RELEASE ----------------
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
